@@ -17,7 +17,7 @@ With sufficiently extreme assumptions we can force it into the form of an LP.
 
 #### disclaimer
 
-this doesnt' work particularly well, but it is sort of entertaining.
+this doesn't work particularly well, and the code is bad, but it is sort of entertaining.
 
 
 #### example
