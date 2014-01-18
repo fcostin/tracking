@@ -22,5 +22,5 @@ this doesnt' work particularly well, but it is sort of entertaining.
 
 #### example
 
-[example](https://raw.github.com/fcostin/tracking/master/pretties/example.png)
+![example](https://raw.github.com/fcostin/tracking/master/pretties/example.png)
 
