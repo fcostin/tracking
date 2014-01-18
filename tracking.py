@@ -1,7 +1,7 @@
 import numpy
 import pulp
 
-N = 200 # how many timesteps
+N = 50 # how many timesteps
 TIMESTEPS = range(N)
 T_0 = 0.0
 T_1 = 20.0
@@ -17,11 +17,11 @@ print 'simulating true object trajectory'
 
 def object_pos(t):
     t_c = 0.5 * (T_0 + T_1)
-    phase_one_x = 0.5 * t * numpy.cos(t)
-    phase_one_y = 0.5 * t * numpy.sin(t)
+    phase_one_x = 2.5 * t * numpy.cos(t)
+    phase_one_y = 2.5 * t * numpy.sin(t)
 
-    phase_two_x = 0.5 * t_c * numpy.cos(t_c) + 2.0 * numpy.abs(t - t_c) ** 1.1
-    phase_two_y = 0.5 * t_c * numpy.sin(t_c)
+    phase_two_x = 2.5 * t_c * numpy.cos(t_c) + 4.0 * numpy.abs(t - t_c) ** 1.1
+    phase_two_y = 2.5 * t_c * numpy.sin(t_c) - 1.0 * numpy.abs(t - t_c) ** 1.5
 
     x = numpy.where(t < t_c, phase_one_x, phase_two_x)
     y = numpy.where(t < t_c, phase_one_y, phase_two_y)
@@ -37,28 +37,43 @@ print 'simulating sensor measurements'
 # -- each sensor measures a reading of 1.0 / (||x-b||_1 + 1.0), say
 # -- where x is the true object location and b is the sensor location
 
-DOMAIN_SIZE = 25
+DOMAIN_SIZE = 50
 DOMAIN_MIN = [-DOMAIN_SIZE, -DOMAIN_SIZE]
 DOMAIN_MAX = [DOMAIN_SIZE, DOMAIN_SIZE]
 
-N_SENSORS = 13
+N_SENSORS = 7 ** 2
 SENSORS = range(N_SENSORS)
 
-sensor_x = numpy.random.uniform(DOMAIN_MIN[0], DOMAIN_MAX[0], N_SENSORS)
-sensor_y = numpy.random.uniform(DOMAIN_MIN[0], DOMAIN_MAX[1], N_SENSORS)
+if True:
+    # XXX uniform sensor grid appears to work much better than random.
+    # think about this and L1 norm used for distances in LP
+    SQRT_N_SENSORS = int(N_SENSORS ** 0.5)
+    sensor_grid_x = numpy.linspace(DOMAIN_MIN[0], DOMAIN_MAX[0], SQRT_N_SENSORS)
+    sensor_grid_y = numpy.linspace(DOMAIN_MIN[1], DOMAIN_MAX[1], SQRT_N_SENSORS)
+
+    sensor_x, sensor_y = numpy.meshgrid(sensor_grid_x, sensor_grid_y)
+    sensor_x = numpy.ravel(sensor_x)
+    sensor_y = numpy.ravel(sensor_y)
+
+else:
+    sensor_x = numpy.random.uniform(DOMAIN_MIN[0], DOMAIN_MAX[0], N_SENSORS)
+    sensor_y = numpy.random.uniform(DOMAIN_MIN[0], DOMAIN_MAX[1], N_SENSORS)
 
 SENSOR_POS = numpy.asarray([sensor_x, sensor_y])
 
 
-def l1_sensor_observations(i):
+def sensor_observations(i):
     """i : sensor index"""
     dx = sensor_x[i] - object_x
     dy = sensor_y[i] - object_y
-    err = numpy.abs(dx) + numpy.abs(dy)
-    return (err + 1.0) ** -1.0
+    # distance = numpy.abs(dx) + numpy.abs(dy) # L1
+    distance = (dx**2 + dy**2) ** 0.5 # L2
+    signal = (distance + 1.0) ** -1.0
+    noise = numpy.random.normal(0.0, 0.05)
+    return numpy.maximum(noise + signal, 0.0)
 
 
-OBSERVATIONS = numpy.asarray([l1_sensor_observations(i) for i in SENSORS])
+OBSERVATIONS = numpy.asarray([sensor_observations(i) for i in SENSORS])
 
 
 # set up an LP to try to recover the trajectory
@@ -98,11 +113,19 @@ for t in TIMESTEPS:
         for i in SENSORS:
             prob += (Z[(t, d, i)] <= X[(t, d)] - SENSOR_POS[d, i])
             prob += (Z[(t, d, i)] <= -(X[(t, d)] - SENSOR_POS[d, i]))
-            obj.append(OBSERVATIONS[i, t] * Z[(t, d, i)])
+
+            if False:
+                #XXX this if condition is a total hack to ignore non-close observations.
+                # seems to make it work better. compare this cutoff against sensor observation plot
+                if OBSERVATIONS[i, t] > 0.15:
+                    obj.append(OBSERVATIONS[i, t] * Z[(t, d, i)])
+            else:
+                # XXX this expponent is a complete experiment
+                obj.append((OBSERVATIONS[i, t] ** 3.0) * Z[(t, d, i)])
 
 
-MAX_VELOCITY = 3.0 # XXX
-VELOCITY_PENALTY = 1.0 # bias toward slower trajectories
+MAX_VELOCITY = 5.0 # XXX
+VELOCITY_PENALTY = 0.01 # bias toward slower trajectories
 for t in TIMESTEPS[1:]:
     for d in DIMS:
         prob += (V[(t, d)] <= X[(t, d)] - X[(t-1, d)])
@@ -145,16 +168,17 @@ pylab.figure()
 
 pylab.subplot(2, 2, 1)
 pylab.title('true object trajectory + sensor locations')
+pylab.scatter(sensor_x, sensor_y, marker='+', s=24, c='m', linewidth=18)
 pylab.scatter(object_x, object_y, s=96, c=TIME, cmap=pylab.cm.jet)
 pylab.colorbar()
-pylab.scatter(sensor_x, sensor_y, marker='+', s=48, c='m', linewidth=24)
 
 pylab.subplot(2, 2, 2)
 pylab.title('sensor observations')
 pylab.plot(OBSERVATIONS.T)
 
 pylab.subplot(2, 2, 3)
-pylab.title('inferred object trajectory')
+pylab.title('inferred object trajectory + sensor locations')
+pylab.scatter(sensor_x, sensor_y, marker='+', s=24, c='m', linewidth=18)
 pylab.scatter(inferred_object_x, inferred_object_y, marker='p', s=96, c=TIME, cmap=pylab.cm.jet)
 pylab.colorbar()
 
